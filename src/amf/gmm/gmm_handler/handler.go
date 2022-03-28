@@ -560,7 +560,7 @@ func HandleRegistrationRequest(ue *amf_context.AmfUe, anType models.AccessType, 
 		ue.IsCleartext = false
 	}
 
-	// NgKsi: TS 24.501 9.11.3.32
+	//计算 NgKsi的两个参数安全上下文Tsc和密钥标识Ksi，详见TS 24.501 9.11.3.32
 	switch registrationRequest.NgksiAndRegistrationType5GS.GetTSC() {
 	case nasMessage.TypeOfSecurityContextFlagNative:
 		ue.NgKsi.Tsc = models.ScType_NATIVE
@@ -568,6 +568,7 @@ func HandleRegistrationRequest(ue *amf_context.AmfUe, anType models.AccessType, 
 		ue.NgKsi.Tsc = models.ScType_MAPPED
 	}
 	ue.NgKsi.Ksi = int32(registrationRequest.NgksiAndRegistrationType5GS.GetNasKeySetIdentifiler())
+
 	if ue.NgKsi.Tsc == models.ScType_NATIVE && ue.NgKsi.Ksi != 7 {
 
 	} else {
@@ -1471,6 +1472,7 @@ func startAuthenticationProcedure(ue *amf_context.AmfUe, anType models.AccessTyp
 
 	amfSelf := amf_context.AMF_Self()
 	// TODO: consider ausf group id, Routing ID part of SUCI
+	
 	param := Nnrf_NFDiscovery.SearchNFInstancesParamOpts{}
 	resp, err := amf_consumer.SendSearchNFInstances(amfSelf.NrfUri, models.NfType_AUSF, models.NfType_AMF, &param)
 	if err != nil {
@@ -1502,8 +1504,7 @@ func startAuthenticationProcedure(ue *amf_context.AmfUe, anType models.AccessTyp
 		return nil
 	}
 	ue.AuthenticationCtx = response
-	ue.ABBA = []uint8{0x00, 0x00} // set ABBA value as described at TS 33.501 Annex A.7.1
-
+	ue.ABBA = []uint8{0x00, 0x00} // 配置为协议的默认值 0x0000，详细配置描述于 TS 33.501 Annex A.7.1
 	ue.T3560RetryTimes = 0
 	gmm_message.SendAuthenticationRequest(ue.RanUe[anType])
 	return ue.Sm[anType].Transfer(gmm_state.AUTHENTICATION, nil)
@@ -1790,14 +1791,13 @@ func HandleAuthenticationResponse(ue *amf_context.AmfUe, anType models.AccessTyp
 			return fmt.Errorf("Var5gAuthData Convert Type Error")
 		}
 		resStar := authenticationResponse.AuthenticationResponseParameter.GetRES()
-
-		// Calculate HRES* (TS 33.501 Annex A.5)
+		// 根据UE 发送过来的RES*，使用sha256计算HXRES* (TS 33.501 Annex A.5)
 		p0, _ := hex.DecodeString(av5gAka.Rand)
 		p1 := resStar[:]
 		concat := append(p0, p1...)
 		hResStarBytes := sha256.Sum256(concat)
 		hResStar := hex.EncodeToString(hResStarBytes[16:])
-
+		//SEAF将5G SE AV存储的HXRES*与从UE接收并计算的进行对比，验证预期响应是否一致
 		if hResStar != av5gAka.HxresStar {
 			logger.GmmLog.Errorf("HRES* Validation Failure")
 
@@ -1810,7 +1810,7 @@ func HandleAuthenticationResponse(ue *amf_context.AmfUe, anType models.AccessTyp
 				return ue.Sm[anType].Transfer(gmm_state.DE_REGISTERED, nil)
 			}
 		}
-
+		//在验证完UE的合法性后，将接收的RES*转发给AUSF验证密钥协商过程的完整性。
 		response, problemDetails, err := amf_consumer.SendAuth5gAkaConfirmRequest(ue, hex.EncodeToString(resStar[:]))
 		if err != nil {
 			return err
@@ -1819,6 +1819,7 @@ func HandleAuthenticationResponse(ue *amf_context.AmfUe, anType models.AccessTyp
 			return nil
 		}
 		switch response.AuthResult {
+		//AUSF认证UE成功后，将返回"201 Created", 表示为注册UE创建资源。资源URI采用location载荷传输
 		case models.AuthResult_SUCCESS:
 			ue.UnauthenticatedSupi = false
 			ue.Kseaf = response.Kseaf

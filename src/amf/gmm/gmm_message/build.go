@@ -106,11 +106,16 @@ func BuildAuthenticationRequest(ue *amf_context.AmfUe) ([]byte, error) {
 	m.GmmHeader.SetMessageType(nas.MsgTypeAuthenticationRequest)
 
 	authenticationRequest := nasMessage.NewAuthenticationRequest(0)
-	authenticationRequest.ExtendedProtocolDiscriminator.SetExtendedProtocolDiscriminator(nasMessage.Epd5GSMobilityManagementMessage)
-	authenticationRequest.SpareHalfOctetAndSecurityHeaderType.SetSecurityHeaderType(nas.SecurityHeaderTypePlainNas)
-	authenticationRequest.SpareHalfOctetAndSecurityHeaderType.SetSpareHalfOctet(0)
-	authenticationRequest.AuthenticationRequestMessageIdentity.SetMessageType(nas.MsgTypeAuthenticationRequest)
-	authenticationRequest.SpareHalfOctetAndNgksi = nasConvert.SpareHalfOctetAndNgksiToNas(ue.NgKsi)
+	authenticationRequest.ExtendedProtocolDiscriminator.
+	SetExtendedProtocolDiscriminator(nasMessage.Epd5GSMobilityManagementMessage)
+	authenticationRequest.SpareHalfOctetAndSecurityHeaderType.
+	SetSecurityHeaderType(nas.SecurityHeaderTypePlainNas)
+	authenticationRequest.SpareHalfOctetAndSecurityHeaderType.
+	SetSpareHalfOctet(0)
+	authenticationRequest.AuthenticationRequestMessageIdentity.
+	SetMessageType(nas.MsgTypeAuthenticationRequest)
+	authenticationRequest.SpareHalfOctetAndNgksi = nasConvert.
+	SpareHalfOctetAndNgksiToNas(ue.NgKsi)//¼´ AuthenticationProcedure ¶¨ÒåµÄ []uint8{0x00, 0x00}
 	authenticationRequest.ABBA.SetLen(uint8(len(ue.ABBA)))
 	authenticationRequest.ABBA.SetABBAContents(ue.ABBA)
 

@@ -69,7 +69,7 @@ func SendAuthenticationRequest(ue *amf_context.RanUe) {
 		return
 	}
 
-	nasMsg, err := BuildAuthenticationRequest(amfUe)
+	nasMsg, err := BuildAuthenticationRequest(amfUe)//amfUe为AMF发送给UE的上下文信息
 	if err != nil {
 		logger.GmmLog.Error(err.Error())
 		return

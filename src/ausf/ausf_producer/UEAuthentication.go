@@ -135,7 +135,7 @@ func HandleAuth5gAkaComfirmRequest(respChan chan ausf_message.HandlerResponseMes
 	ausfCurrentContext := ausf_context.GetAusfUeContext(currentSupi)
 	servingNetworkName := ausfCurrentContext.ServingNetworkName
 
-	// Compare the received RES* with the stored XRES*
+	// 比较从seaf发送过来的RES和预存储在上线文信息中的XRES,来验证UE的合法性
 	logger.Auth5gAkaComfirmLog.Infof("res*: %x\nXres*: %x\n", body.ResStar, ausfCurrentContext.XresStar)
 	if strings.Compare(body.ResStar, ausfCurrentContext.XresStar) == 0 {
 		ausfCurrentContext.AuthStatus = models.AuthResult_SUCCESS
@@ -146,19 +146,16 @@ func HandleAuth5gAkaComfirmRequest(respChan chan ausf_message.HandlerResponseMes
 	} else {
 		ausfCurrentContext.AuthStatus = models.AuthResult_FAILURE
 		response.AuthResult = models.AuthResult_FAILURE
-		logConfirmFailureAndInformUDM(id, models.AuthType__5_G_AKA, servingNetworkName, "5G AKA confirmation failed", ausfCurrentContext.UdmUeauUrl)
-	}
-
+		logConfirmFailureAndInformUDM(id, models.AuthType__5_G_AKA, servingNetworkName, "5G AKA confirmation failed", ausfCurrentContext.UdmUeauUrl)}
 	if sendErr := sendAuthResultToUDM(id, models.AuthType__5_G_AKA, success, servingNetworkName, ausfCurrentContext.UdmUeauUrl); sendErr != nil {
 		logger.Auth5gAkaComfirmLog.Infoln(sendErr.Error())
 		var problemDetails models.ProblemDetails
 		problemDetails.Cause = "UPSTREAM_SERVER_ERROR"
 		ausf_message.SendHttpResponseMessage(respChan, nil, http.StatusInternalServerError, problemDetails)
 
-		return
-	}
-
+		return}
 	response.Supi = currentSupi
+	//将认证结果和Kseaf和当前创建会话的supi发送给SEAF
 	ausf_message.SendHttpResponseMessage(respChan, nil, http.StatusOK, response)
 }
 

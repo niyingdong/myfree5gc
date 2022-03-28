@@ -26,6 +26,7 @@ func HandleGenerateAuthData(respChan chan udm_message.HandlerResponseMessage, su
 	rand.Seed(time.Now().UnixNano())
 
 	supi, suciToSupiErr := suci.ToSupi(supiOrSuci)
+	//根据UE初始时发送过来的suci，解密拿到supi.
 	if suciToSupiErr != nil {
 		logger.UeauLog.Errorln("suciToSupi error: ", suciToSupiErr.Error())
 		problemDetails.Cause = "AUTHENTICATION_REJECTED"
@@ -35,6 +36,7 @@ func HandleGenerateAuthData(respChan chan udm_message.HandlerResponseMessage, su
 
 	client := createUDMClientToUDR(supi, false)
 	authSubs, _, err := client.AuthenticationDataDocumentApi.QueryAuthSubsData(context.Background(), supi, nil)
+	//以supi为关键索引，拿到authSubs 认证对象。
 	if err != nil {
 		logger.UeauLog.Errorln("Return from UDR QueryAuthSubsData error")
 		problemDetails.Cause = "AUTHENTICATION_REJECTED"
@@ -52,6 +54,7 @@ func HandleGenerateAuthData(respChan chan udm_message.HandlerResponseMessage, su
 	K, OP, OPC := make([]byte, 16), make([]byte, 16), make([]byte, 16)
 
 	if authSubs.PermanentKey != nil {
+	//取出PermanentKey，在5G秘钥层级体系中UE和核心网会预共享PermanentKey，其他秘钥通过PermanentKey派生
 		K_str = authSubs.PermanentKey.PermanentKeyValue
 		K, _ = hex.DecodeString(K_str)
 		has_K = true
@@ -74,6 +77,7 @@ func HandleGenerateAuthData(respChan chan udm_message.HandlerResponseMessage, su
 	}
 
 	if authSubs.Opc != nil {
+	//从authSubs认证对象中，拿出opc参数，作为生成密钥参数的输入参数
 		OPC_str = authSubs.Opc.OpcValue
 		OPC, _ = hex.DecodeString(OPC_str)
 		has_OPC = true
@@ -92,12 +96,15 @@ func HandleGenerateAuthData(respChan chan udm_message.HandlerResponseMessage, su
 	}
 
 	SQN_str := authSubs.SequenceNumber
+	//从authSubs认证对象中，拿出sqn
 	SQN, _ := hex.DecodeString(SQN_str)
 	// fmt.Printf("K=%x\nSQN=%x\nOP=%x\nOPC=%x\n", K, SQN, OP, OPC)
 
 	RAND := make([]byte, 16)
 	rand.Read(RAND)
+	//生成RAND 参数
 	AMF, _ := hex.DecodeString("8000")
+	//生成AMF参数
 	// fmt.Printf("RAND=%x\nAMF=%x\n", RAND, AMF)
 
 	// for test
@@ -111,10 +118,10 @@ func HandleGenerateAuthData(respChan chan udm_message.HandlerResponseMessage, su
 	RES := make([]byte, 8)
 	AK, AKstar := make([]byte, 6), make([]byte, 6)
 
-	// Generate MAC_A, MAC_S
+	//利用函数f1计算摘要 MAC_A, MAC_S，摘要是UE认证核心网的关键。
 	milenage.F1_Test(OPC, K, RAND, SQN, AMF, MAC_A, MAC_S)
 
-	// Generate RES, CK, IK, AK, AKstar
+	// 利用f2,f3,f4,f5依次生成 RES, CK, IK, AK, AKstar等密钥参数
 	// RES == XRES (expected RES) for server
 	milenage.F2345_Test(OPC, K, RAND, RES, CK, IK, AK, AKstar)
 	// fmt.Printf("milenage RES = %s\n", hex.EncodeToString(RES))
@@ -125,34 +132,35 @@ func HandleGenerateAuthData(respChan chan udm_message.HandlerResponseMessage, su
 	SQNxorAK := make([]byte, 6)
 	for i := 0; i < len(SQN); i++ {
 		SQNxorAK[i] = SQN[i] ^ AK[i]
-	}
-	// fmt.Printf("SQN xor AK = %x\n", SQNxorAK)
+	}// fmt.Printf("SQN xor AK = %x\n", SQNxorAK)
+	//利用SQN和AK、MAC生成认证令牌AUTN
 	AUTN := append(append(SQNxorAK, AMF...), MAC_A...)
 	// fmt.Printf("AUTN = %x\n", AUTN)
 
-	var av models.AuthenticationVector
+	var av models.AuthenticationVector//AV向量封装与填充处理，AV=RAND||XRES||CK||IK||AUTN
 	if authSubs.AuthenticationMethod == models.AuthMethod__5_G_AKA {
-		response.AuthType = models.AuthType__5_G_AKA
+		response.AuthType = models.AuthType__5_G_AKA//采用5G-AKA认证方式生成5G HE AV
 
-		// derive XRES*
+		//  计算 XRES*
 		key := append(CK, IK...)
 		FC := UeauCommon.FC_FOR_RES_STAR_XRES_STAR_DERIVATION
 		P0 := []byte(body.ServingNetworkName)
 		P1 := RAND
 		P2 := RES
 
-		kdfVal_for_xresStar := UeauCommon.GetKDFValue(key, FC, P0, UeauCommon.KDFLen(P0), P1, UeauCommon.KDFLen(P1), P2, UeauCommon.KDFLen(P2))
+		kdfVal_for_xresStar := UeauCommon.GetKDFValue(key, FC, P0, UeauCommon.KDFLen(P0), 
+		P1, UeauCommon.KDFLen(P1), P2, UeauCommon.KDFLen(P2))
 		xresStar := kdfVal_for_xresStar[len(kdfVal_for_xresStar)/2:]
 		// fmt.Printf("xresStar = %x\n", xresStar)
 
-		// derive Kausf
+		// 计算 Kausf
 		FC = UeauCommon.FC_FOR_KAUSF_DERIVATION
 		P0 = []byte(body.ServingNetworkName)
 		P1 = SQNxorAK
 		kdfVal_for_Kausf := UeauCommon.GetKDFValue(key, FC, P0, UeauCommon.KDFLen(P0), P1, UeauCommon.KDFLen(P1))
 		// fmt.Printf("Kausf = %x\n", kdfVal_for_Kausf)
 
-		// Fill in rand, xresStar, autn, kausf
+		// 填充 rand, xresStar, autn, kausf
 		av.Rand = hex.EncodeToString(RAND)
 		av.XresStar = hex.EncodeToString(xresStar)
 		av.Autn = hex.EncodeToString(AUTN)
